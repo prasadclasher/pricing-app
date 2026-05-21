@@ -1,4 +1,4 @@
-package com.pricingfeed.domain;
+package com.pricingfeed.entity;
 
 public enum UploadJobStatus {
     PENDING,

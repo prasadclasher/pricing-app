@@ -1,6 +1,6 @@
 package com.pricingfeed.api.response;
 
-import com.pricingfeed.domain.UploadJobStatus;
+import com.pricingfeed.entity.UploadJobStatus;
 
 import java.time.OffsetDateTime;
 import java.util.List;

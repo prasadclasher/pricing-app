@@ -1,6 +1,5 @@
 package com.pricingfeed.entity;
 
-import com.pricingfeed.domain.UploadJobStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
