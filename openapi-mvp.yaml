@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: Pricing Feed MVP API
+  version: 1.0.0
+paths:
+  /api/uploads:
+    post:
+      summary: Upload CSV and start processing job
+      responses:
+        "200":
+          description: Job accepted
+  /api/uploads/{jobId}:
+    get:
+      summary: Get upload job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Job status
+  /api/pricing-records:
+    get:
+      summary: Search pricing records
+      responses:
+        "200":
+          description: Paginated records
+  /api/pricing-records/{id}:
+    get:
+      summary: Get record detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Record
+    put:
+      summary: Update record with optimistic locking
+      responses:
+        "200":
+          description: Updated
+        "409":
+          description: Conflict
+  /api/pricing-records/{id}/audit:
+    get:
+      summary: Fetch audit history for record
+      responses:
+        "200":
+          description: Audit events
