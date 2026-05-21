@@ -1,0 +1,3 @@
+ALTER TABLE app_users
+    ADD COLUMN role VARCHAR(32) NULL,
+    ADD COLUMN password_hash VARCHAR(255) NULL;
