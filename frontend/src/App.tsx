@@ -1,10 +1,5 @@
-import { useState } from "react";
-
-const API = "http://localhost:8080/api";
-const HEADERS = {
-  "x-role": "HQ_ADMIN",
-  "x-user-id": "1"
-};
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch, getStoredToken, login, setStoredToken } from "./api";
 
 type RecordItem = {
   id: number;
@@ -17,26 +12,88 @@ type RecordItem = {
   version: number;
 };
 
+type Me = {
+  userId: number;
+  username: string;
+  role: string;
+  storeId: number | null;
+};
+
 export function App() {
+  const [token, setToken] = useState<string | null>(() => getStoredToken());
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [me, setMe] = useState<Me | null>(null);
   const [jobId, setJobId] = useState("");
-  const [jobStatus, setJobStatus] = useState<any>(null);
+  const [jobStatus, setJobStatus] = useState<unknown>(null);
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [selected, setSelected] = useState<RecordItem | null>(null);
   const [newPrice, setNewPrice] = useState("");
   const [query, setQuery] = useState({ storeId: "", sku: "", productName: "" });
 
+  const loadMe = useCallback(async () => {
+    if (!getStoredToken()) return;
+    const res = await apiFetch("/auth/me");
+    if (res.ok) {
+      setMe(await res.json());
+    } else {
+      setMe(null);
+      setToken(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (token) {
+      loadMe();
+    } else {
+      setMe(null);
+    }
+  }, [token, loadMe]);
+
+  useEffect(() => {
+    const onLogout = () => {
+      setToken(null);
+      setMe(null);
+    };
+    window.addEventListener("auth:logout", onLogout);
+    return () => window.removeEventListener("auth:logout", onLogout);
+  }, []);
+
+  const handleLogin = async () => {
+    setLoginError("");
+    try {
+      await login(username, password);
+      setToken(getStoredToken());
+    } catch (e) {
+      setLoginError(e instanceof Error ? e.message : "Login failed");
+    }
+  };
+
+  const handleLogout = () => {
+    setStoredToken(null);
+    setToken(null);
+    setMe(null);
+  };
+
   const upload = async (file: File) => {
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch(`${API}/uploads`, { method: "POST", headers: HEADERS, body });
+    const res = await apiFetch("/uploads", { method: "POST", body });
+    if (!res.ok) {
+      alert(`Upload failed: ${res.status}`);
+      return;
+    }
     const data = await res.json();
     setJobId(data.jobId);
   };
 
   const pollJob = async () => {
     if (!jobId) return;
-    const res = await fetch(`${API}/uploads/${jobId}`);
-    setJobStatus(await res.json());
+    const res = await apiFetch(`/uploads/${jobId}`);
+    if (res.ok) {
+      setJobStatus(await res.json());
+    }
   };
 
   const search = async () => {
@@ -44,42 +101,71 @@ export function App() {
     if (query.storeId) params.set("storeId", query.storeId);
     if (query.sku) params.set("sku", query.sku);
     if (query.productName) params.set("productName", query.productName);
-    const res = await fetch(`${API}/pricing-records?${params}`, { headers: HEADERS });
-    const data = await res.json();
-    setRecords(data.content ?? []);
+    const res = await apiFetch(`/pricing-records?${params}`);
+    if (res.ok) {
+      const data = await res.json();
+      setRecords(data.content ?? []);
+    }
   };
 
   const loadRecord = async (id: number) => {
-    const res = await fetch(`${API}/pricing-records/${id}`, { headers: HEADERS });
-    const data = await res.json();
-    setSelected(data);
-    setNewPrice(String(data.price));
+    const res = await apiFetch(`/pricing-records/${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      setSelected(data);
+      setNewPrice(String(data.price));
+    }
   };
 
   const saveRecord = async () => {
     if (!selected) return;
-    const res = await fetch(`${API}/pricing-records/${selected.id}`, {
+    const res = await apiFetch(`/pricing-records/${selected.id}`, {
       method: "PUT",
-      headers: { ...HEADERS, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ price: Number(newPrice), version: selected.version })
     });
     if (res.status === 409) {
       alert("Version conflict. Refresh and try again.");
       return;
     }
-    setSelected(await res.json());
-    alert("Saved");
+    if (res.ok) {
+      setSelected(await res.json());
+      alert("Saved");
+    }
   };
+
+  if (!token) {
+    return (
+      <div className="page">
+        <h1>Pricing Feed MVP</h1>
+        <section>
+          <h2>Login</h2>
+          <p>Use credentials from your local <code>.env</code> (see README).</p>
+          <div>
+            <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <button onClick={handleLogin}>Login</button>
+          </div>
+          {loginError && <p style={{ color: "crimson" }}>{loginError}</p>}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
       <h1>Pricing Feed MVP</h1>
+      <p>
+        Signed in as <strong>{me?.username ?? "…"}</strong> ({me?.role ?? "…"})
+        {me?.storeId != null && <> — store {me.storeId}</>}
+        <button onClick={handleLogout} style={{ marginLeft: "1rem" }}>Logout</button>
+      </p>
 
       <section>
         <h2>Upload CSV</h2>
         <input type="file" accept=".csv" onChange={(e) => e.target.files && upload(e.target.files[0])} />
         <button onClick={pollJob}>Refresh Job</button>
-        {jobStatus && <pre>{JSON.stringify(jobStatus, null, 2)}</pre>}
+        {jobStatus != null && <pre>{JSON.stringify(jobStatus, null, 2)}</pre>}
       </section>
 
       <section>
