@@ -20,15 +20,12 @@ public class UploadController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public UploadResponse upload(@RequestPart("file") MultipartFile file,
-                                      @RequestHeader("x-role") String role,
-                                      @RequestHeader("x-user-id") Long userId,
-                                      @RequestHeader(value = "x-store-id", required = false) Long storeId) {
-        return new UploadResponse(uploadService.createAndProcess(file, actorContext.actor(role, userId, storeId)));
+    public UploadResponse upload(@RequestPart("file") MultipartFile file) {
+        return new UploadResponse(uploadService.createAndProcess(file, actorContext.requireActor()));
     }
 
     @GetMapping("/{jobId}")
     public UploadJobResponse getStatus(@PathVariable String jobId) {
-        return uploadService.getJob(jobId);
+        return uploadService.getJob(jobId, actorContext.requireActor());
     }
 }

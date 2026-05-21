@@ -16,4 +16,8 @@ public class ApiExceptions {
     public static class BadRequestException extends RuntimeException {
         public BadRequestException(String message) { super(message); }
     }
+
+    public static class UnauthorizedException extends RuntimeException {
+        public UnauthorizedException(String message) { super(message); }
+    }
 }

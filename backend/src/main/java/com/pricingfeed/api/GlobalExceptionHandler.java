@@ -22,6 +22,11 @@ public class GlobalExceptionHandler {
         return err(HttpStatus.FORBIDDEN, "FORBIDDEN", ex.getMessage());
     }
 
+    @ExceptionHandler(ApiExceptions.UnauthorizedException.class)
+    ResponseEntity<Map<String, Object>> handleUnauthorized(ApiExceptions.UnauthorizedException ex) {
+        return err(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", ex.getMessage());
+    }
+
     @ExceptionHandler(ApiExceptions.BadRequestException.class)
     ResponseEntity<Map<String, Object>> handleBad(ApiExceptions.BadRequestException ex) {
         return err(HttpStatus.BAD_REQUEST, "BAD_REQUEST", ex.getMessage());

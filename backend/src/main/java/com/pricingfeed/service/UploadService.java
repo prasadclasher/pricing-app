@@ -18,6 +18,7 @@ import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
 
 import static com.pricingfeed.service.ApiExceptions.BadRequestException;
@@ -26,6 +27,7 @@ import static com.pricingfeed.service.ApiExceptions.NotFoundException;
 
 @Service
 public class UploadService {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final List<String> REQUIRED = List.of("store_id", "sku", "product_name", "price", "price_date");
 
     private final UploadJobRepository uploadJobRepository;
@@ -55,8 +57,11 @@ public class UploadService {
     }
 
     @Transactional(readOnly = true)
-    public UploadJobResponse getJob(String id) {
+    public UploadJobResponse getJob(String id, ActorContext.Actor actor) {
         UploadJob job = uploadJobRepository.findById(id).orElseThrow(() -> new NotFoundException("Upload job not found"));
+        if (!actor.isHq() && !Objects.equals(job.getStoreId(), actor.storeId())) {
+            throw new ForbiddenException("Upload job is outside user store scope");
+        }
         List<UploadJobErrorRowResponse> rows = uploadJobErrorRepository.findByUploadJobIdOrderByRowIdAsc(id)
                 .stream()
                 .map(r -> new UploadJobErrorRowResponse(r.getRowId(), r.getErrorMessage(), r.getRowData()))
@@ -100,7 +105,11 @@ public class UploadService {
                     UploadJobError error = new UploadJobError();
                     error.setUploadJobId(job.getId());
                     error.setRowId(row);
-                    error.setRowData(data.toString());
+                    try {
+                        error.setRowData(OBJECT_MAPPER.writeValueAsString(data));
+                    } catch (Exception e) {
+                        error.setRowData("{}");
+                    }
                     error.setErrorMessage(ex.getMessage());
                     uploadJobErrorRepository.save(error);
                     job.setFailedRows(job.getFailedRows() + 1);

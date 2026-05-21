@@ -35,36 +35,23 @@ public class PricingRecordController {
             @RequestParam(required = false) LocalDate dateTo,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String sort,
-            @RequestHeader("x-role") String role,
-            @RequestHeader("x-user-id") Long userId,
-            @RequestHeader(value = "x-store-id", required = false) Long actorStoreId
+            @RequestParam(required = false) String sort
     ) {
-        return pricingRecordService.search(storeId, sku, productName, priceMin, priceMax, dateFrom, dateTo, page, size, sort, actorContext.actor(role, userId, actorStoreId));
+        return pricingRecordService.search(storeId, sku, productName, priceMin, priceMax, dateFrom, dateTo, page, size, sort, actorContext.requireActor());
     }
 
     @GetMapping("/{id}")
-    public PricingRecordResponse get(@PathVariable Long id,
-                                          @RequestHeader("x-role") String role,
-                                          @RequestHeader("x-user-id") Long userId,
-                                          @RequestHeader(value = "x-store-id", required = false) Long actorStoreId) {
-        return pricingRecordService.getById(id, actorContext.actor(role, userId, actorStoreId));
+    public PricingRecordResponse get(@PathVariable Long id) {
+        return pricingRecordService.getById(id, actorContext.requireActor());
     }
 
     @PutMapping("/{id}")
-    public PricingRecordResponse update(@PathVariable Long id,
-                                             @Valid @RequestBody UpdatePricingRecordRequest request,
-                                             @RequestHeader("x-role") String role,
-                                             @RequestHeader("x-user-id") Long userId,
-                                             @RequestHeader(value = "x-store-id", required = false) Long actorStoreId) {
-        return pricingRecordService.update(id, request, actorContext.actor(role, userId, actorStoreId));
+    public PricingRecordResponse update(@PathVariable Long id, @Valid @RequestBody UpdatePricingRecordRequest request) {
+        return pricingRecordService.update(id, request, actorContext.requireActor());
     }
 
     @GetMapping("/{id}/audit")
-    public List<PricingRecordAuditResponse> audit(@PathVariable Long id,
-                                          @RequestHeader("x-role") String role,
-                                          @RequestHeader("x-user-id") Long userId,
-                                          @RequestHeader(value = "x-store-id", required = false) Long actorStoreId) {
-        return pricingRecordService.getAudit(id, actorContext.actor(role, userId, actorStoreId));
+    public List<PricingRecordAuditResponse> audit(@PathVariable Long id) {
+        return pricingRecordService.getAudit(id, actorContext.requireActor());
     }
 }

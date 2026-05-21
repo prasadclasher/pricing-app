@@ -1,22 +1,35 @@
 package com.pricingfeed.service;
 
+import com.pricingfeed.entity.UserRole;
+import com.pricingfeed.security.AuthenticatedUser;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import static com.pricingfeed.service.ApiExceptions.BadRequestException;
+import static com.pricingfeed.service.ApiExceptions.UnauthorizedException;
 
 @Component
 public class ActorContext {
-    public Actor actor(String role, Long userId, Long storeId) {
-        if (role == null || userId == null) {
-            throw new BadRequestException("x-role and x-user-id headers are required");
+
+    public AuthenticatedUser requirePrincipal() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser user)) {
+            throw new UnauthorizedException("Authentication required");
         }
-        if ("STORE_USER".equalsIgnoreCase(role) && storeId == null) {
-            throw new BadRequestException("x-store-id header is required for STORE_USER");
+        return user;
+    }
+
+    public Actor requireActor() {
+        AuthenticatedUser user = requirePrincipal();
+        if (user.getRole() == UserRole.STORE_USER && user.getStoreId() == null) {
+            throw new UnauthorizedException("Invalid user configuration");
         }
-        return new Actor(role.toUpperCase(), userId, storeId);
+        return new Actor(user.getRole().name(), user.getUserId(), user.getStoreId());
     }
 
     public record Actor(String role, Long userId, Long storeId) {
-        public boolean isHq() { return "HQ_USER".equals(role) || "HQ_ADMIN".equals(role); }
+        public boolean isHq() {
+            return UserRole.HQ_USER.name().equals(role) || UserRole.HQ_ADMIN.name().equals(role);
+        }
     }
 }
