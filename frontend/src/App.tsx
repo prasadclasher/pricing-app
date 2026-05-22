@@ -147,7 +147,6 @@ export function App() {
         <h1>Pricing Feed MVP</h1>
         <section>
           <h2>Login</h2>
-          <p>Use credentials from your local <code>.env</code> (see README).</p>
           <div>
             <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
             <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
