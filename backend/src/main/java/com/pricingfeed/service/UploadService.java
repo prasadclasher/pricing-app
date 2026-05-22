@@ -1,25 +1,26 @@
 package com.pricingfeed.service;
 
-import com.opencsv.CSVReaderHeaderAware;
 import com.pricingfeed.api.response.UploadJobErrorRowResponse;
 import com.pricingfeed.api.response.UploadJobResponse;
-import com.pricingfeed.entity.PricingRecord;
 import com.pricingfeed.entity.UploadJob;
 import com.pricingfeed.entity.UploadJobStatus;
-import com.pricingfeed.entity.UploadJobError;
-import com.pricingfeed.repo.PricingRecordRepository;
+import com.pricingfeed.entity.UploadedFile;
+import com.pricingfeed.messaging.UploadJobMessage;
+import com.pricingfeed.messaging.UploadJobProducer;
 import com.pricingfeed.repo.UploadJobErrorRepository;
 import com.pricingfeed.repo.UploadJobRepository;
+import com.pricingfeed.repo.UploadedFileRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.InputStreamReader;
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.*;
+import java.util.List;
+import java.util.Objects;
 
 import static com.pricingfeed.service.ApiExceptions.BadRequestException;
 import static com.pricingfeed.service.ApiExceptions.ForbiddenException;
@@ -27,38 +28,77 @@ import static com.pricingfeed.service.ApiExceptions.NotFoundException;
 
 @Service
 public class UploadService {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final List<String> REQUIRED = List.of("store_id", "sku", "product_name", "price", "price_date");
+
+    private static final Logger log = LoggerFactory.getLogger(UploadService.class);
 
     private final UploadJobRepository uploadJobRepository;
     private final UploadJobErrorRepository uploadJobErrorRepository;
-    private final PricingRecordRepository pricingRecordRepository;
+    private final UploadedFileRepository uploadedFileRepository;
+    private final UploadJobProducer uploadJobProducer;
 
-    public UploadService(UploadJobRepository uploadJobRepository, UploadJobErrorRepository uploadJobErrorRepository, PricingRecordRepository pricingRecordRepository) {
+    public UploadService(UploadJobRepository uploadJobRepository,
+                         UploadJobErrorRepository uploadJobErrorRepository,
+                         UploadedFileRepository uploadedFileRepository,
+                         UploadJobProducer uploadJobProducer) {
         this.uploadJobRepository = uploadJobRepository;
         this.uploadJobErrorRepository = uploadJobErrorRepository;
-        this.pricingRecordRepository = pricingRecordRepository;
+        this.uploadedFileRepository = uploadedFileRepository;
+        this.uploadJobProducer = uploadJobProducer;
     }
 
+    /**
+     * Accepts an uploaded CSV file, persists the blob and job metadata,
+     * then publishes a Kafka event after the transaction commits.
+     *
+     * @return the generated jobId for status polling
+     */
     @Transactional
-    public String createAndProcess(MultipartFile file, ActorContext.Actor actor) {
+    public String acceptUpload(MultipartFile file, ActorContext.Actor actor) {
+        // 1. Validate the incoming file
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("CSV file is required");
         }
+        if (file.getContentType() != null && !file.getContentType().contains("csv")) {
+            throw new BadRequestException("Only CSV files are supported");
+        }
 
+        // 2. Persist the lightweight job record (status = PENDING)
         UploadJob job = new UploadJob();
         job.setStoreId(actor.storeId() == null ? 1L : actor.storeId());
         job.setUploadedBy(actor.userId());
         job.setStatus(UploadJobStatus.PENDING);
         uploadJobRepository.save(job);
 
-        processCsv(job, file, actor);
+        // 3. Persist the CSV blob in a separate table
+        UploadedFile uploadedFile = new UploadedFile();
+        uploadedFile.setJobId(job.getId());
+        uploadedFile.setOriginalFilename(file.getOriginalFilename() != null ? file.getOriginalFilename() : "unknown.csv");
+        uploadedFile.setContentType(file.getContentType() != null ? file.getContentType() : "text/csv");
+        uploadedFile.setSize(file.getSize());
+        try {
+            uploadedFile.setContent(file.getBytes()); // read within request lifecycle
+        } catch (Exception ex) {
+            throw new BadRequestException("Failed to read uploaded file");
+        }
+        uploadedFileRepository.save(uploadedFile);
+
+        // 4. Store the generated fileId on the job for later lookup
+        job.setFileId(uploadedFile.getId());
+        uploadJobRepository.save(job);
+
+        // 5. Publish a Kafka event *after* the DB transaction commits
+        publishAfterCommit(job, uploadedFile);
+
         return job.getId();
     }
 
+    /**
+     * Returns the current status of an upload job including error details.
+     */
     @Transactional(readOnly = true)
     public UploadJobResponse getJob(String id, ActorContext.Actor actor) {
-        UploadJob job = uploadJobRepository.findById(id).orElseThrow(() -> new NotFoundException("Upload job not found"));
+        UploadJob job = uploadJobRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Upload job not found"));
         if (!actor.isHq() && !Objects.equals(job.getStoreId(), actor.storeId())) {
             throw new ForbiddenException("Upload job is outside user store scope");
         }
@@ -66,74 +106,28 @@ public class UploadService {
                 .stream()
                 .map(r -> new UploadJobErrorRowResponse(r.getRowId(), r.getErrorMessage(), r.getRowData()))
                 .toList();
-        return new UploadJobResponse(job.getId(), job.getStatus(), job.getTotalRows(), job.getSuccessfulRows(), job.getFailedRows(), job.getStartedAt(), job.getCompletedAt(), rows);
+        return new UploadJobResponse(job.getId(), job.getStatus(), job.getTotalRows(),
+                job.getSuccessfulRows(), job.getFailedRows(), job.getStartedAt(), job.getCompletedAt(), rows);
     }
 
-    private void processCsv(UploadJob job, MultipartFile file, ActorContext.Actor actor) {
-        job.setStatus(UploadJobStatus.PROCESSING);
-        job.setStartedAt(OffsetDateTime.now());
-        uploadJobRepository.save(job);
-        int row = 1;
-        try (CSVReaderHeaderAware reader = new CSVReaderHeaderAware(new InputStreamReader(file.getInputStream()))) {
-            Map<String, String> data;
-            while ((data = reader.readMap()) != null) {
-                row++;
-                job.setTotalRows(job.getTotalRows() + 1);
-                try {
-                    validateHeaders(data);
-                    Long storeId = Long.parseLong(data.get("store_id"));
-                    if (!actor.isHq() && !Objects.equals(actor.storeId(), storeId)) {
-                        throw new ForbiddenException("Store scoped user cannot upload for another store");
-                    }
-                    String sku = required(data, "sku");
-                    String productName = required(data, "product_name");
-                    BigDecimal price = new BigDecimal(required(data, "price"));
-                    if (price.compareTo(BigDecimal.ZERO) < 0) throw new BadRequestException("price must be non-negative");
-                    LocalDate priceDate = LocalDate.parse(required(data, "price_date"));
-                    String currency = data.getOrDefault("currency_code", "USD");
-
-                    PricingRecord record = pricingRecordRepository.findByStoreIdAndSkuAndPriceDate(storeId, sku, priceDate).orElseGet(PricingRecord::new);
-                    record.setStoreId(storeId);
-                    record.setSku(sku);
-                    record.setProductName(productName);
-                    record.setPrice(price);
-                    record.setPriceDate(priceDate);
-                    record.setCurrencyCode(currency);
-                    pricingRecordRepository.save(record);
-                    job.setSuccessfulRows(job.getSuccessfulRows() + 1);
-                } catch (Exception ex) {
-                    UploadJobError error = new UploadJobError();
-                    error.setUploadJobId(job.getId());
-                    error.setRowId(row);
-                    try {
-                        error.setRowData(OBJECT_MAPPER.writeValueAsString(data));
-                    } catch (Exception e) {
-                        error.setRowData("{}");
-                    }
-                    error.setErrorMessage(ex.getMessage());
-                    uploadJobErrorRepository.save(error);
-                    job.setFailedRows(job.getFailedRows() + 1);
-                }
+    /**
+     * Registers a transaction synchronisation callback that publishes the
+     * Kafka message only after the surrounding transaction successfully commits.
+     */
+    private void publishAfterCommit(UploadJob job, UploadedFile file) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                UploadJobMessage message = new UploadJobMessage(
+                        job.getId(),
+                        file.getId(),
+                        job.getStoreId(),
+                        job.getUploadedBy(),
+                        OffsetDateTime.now()
+                );
+                uploadJobProducer.publish(message);
+                log.info("Published Kafka message for jobId={}", job.getId());
             }
-            job.setStatus(job.getFailedRows() > 0 ? UploadJobStatus.PARTIAL : UploadJobStatus.COMPLETED);
-        } catch (Exception ex) {
-            job.setStatus(UploadJobStatus.FAILED);
-        }
-        job.setCompletedAt(OffsetDateTime.now());
-        uploadJobRepository.save(job);
-    }
-
-    private void validateHeaders(Map<String, String> rowData) {
-        for (String key : REQUIRED) {
-            if (!rowData.containsKey(key)) {
-                throw new BadRequestException("Missing required CSV column: " + key);
-            }
-        }
-    }
-
-    private String required(Map<String, String> rowData, String key) {
-        String value = rowData.get(key);
-        if (value == null || value.isBlank()) throw new BadRequestException("Missing value: " + key);
-        return value;
+        });
     }
 }

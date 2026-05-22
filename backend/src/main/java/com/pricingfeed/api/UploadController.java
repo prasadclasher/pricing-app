@@ -4,6 +4,7 @@ import com.pricingfeed.api.response.UploadJobResponse;
 import com.pricingfeed.api.response.UploadResponse;
 import com.pricingfeed.service.ActorContext;
 import com.pricingfeed.service.UploadService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,8 +21,9 @@ public class UploadController {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.ACCEPTED)
     public UploadResponse upload(@RequestPart("file") MultipartFile file) {
-        return new UploadResponse(uploadService.createAndProcess(file, actorContext.requireActor()));
+        return new UploadResponse(uploadService.acceptUpload(file, actorContext.requireActor()));
     }
 
     @GetMapping("/{jobId}")

@@ -22,6 +22,12 @@ public class UploadJob {
     @Column(name = "uploaded_by", nullable = false)
     private Long uploadedBy;
 
+    @Column(name = "file_id")
+    private Long fileId;
+
+    @Column(name = "error_message", length = 2000)
+    private String errorMessage;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private UploadJobStatus status;
