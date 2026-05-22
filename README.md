@@ -1,0 +1,1 @@
+This is a pricing app where employees uploaded prices for different stores
