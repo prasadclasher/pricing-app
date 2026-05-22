@@ -14,15 +14,17 @@ public class UploadJobMessage {
     private Long storeId;
     private Long uploadedBy;
     private OffsetDateTime uploadedAt;
+    private boolean isHq;
 
     public UploadJobMessage() {}
 
-    public UploadJobMessage(String jobId, Long fileId, Long storeId, Long uploadedBy, OffsetDateTime uploadedAt) {
+    public UploadJobMessage(String jobId, Long fileId, Long storeId, Long uploadedBy, OffsetDateTime uploadedAt, boolean isHq) {
         this.jobId = jobId;
         this.fileId = fileId;
         this.storeId = storeId;
         this.uploadedBy = uploadedBy;
         this.uploadedAt = uploadedAt;
+        this.isHq = isHq;
     }
 
     public String getJobId() { return jobId; }
@@ -39,4 +41,7 @@ public class UploadJobMessage {
 
     public OffsetDateTime getUploadedAt() { return uploadedAt; }
     public void setUploadedAt(OffsetDateTime uploadedAt) { this.uploadedAt = uploadedAt; }
+
+    public boolean isHq() { return isHq; }
+    public void setHq(boolean isHq) { this.isHq = isHq; }
 }

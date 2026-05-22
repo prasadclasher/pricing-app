@@ -87,7 +87,7 @@ public class UploadService {
         uploadJobRepository.save(job);
 
         // 5. Publish a Kafka event *after* the DB transaction commits
-        publishAfterCommit(job, uploadedFile);
+        publishAfterCommit(job, uploadedFile, actor.isHq());
 
         return job.getId();
     }
@@ -114,7 +114,7 @@ public class UploadService {
      * Registers a transaction synchronisation callback that publishes the
      * Kafka message only after the surrounding transaction successfully commits.
      */
-    private void publishAfterCommit(UploadJob job, UploadedFile file) {
+    private void publishAfterCommit(UploadJob job, UploadedFile file, boolean isHq) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -123,7 +123,8 @@ public class UploadService {
                         file.getId(),
                         job.getStoreId(),
                         job.getUploadedBy(),
-                        OffsetDateTime.now()
+                        OffsetDateTime.now(),
+                        isHq
                 );
                 uploadJobProducer.publish(message);
                 log.info("Published Kafka message for jobId={}", job.getId());

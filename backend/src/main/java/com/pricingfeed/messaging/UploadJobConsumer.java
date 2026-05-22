@@ -31,7 +31,8 @@ public class UploadJobConsumer {
             csvProcessingService.processUploadJob(
                     message.getJobId(),
                     message.getFileId(),
-                    message.getStoreId()
+                    message.getStoreId(),
+                    message.isHq()
             );
         } catch (Exception ex) {
             log.error("Failed to process upload job {}: {}", message.getJobId(), ex.getMessage(), ex);

@@ -56,7 +56,7 @@ public class CsvProcessingService {
      * logs per-row errors, and updates job status/counters.
      */
     @Transactional
-    public void processUploadJob(String jobId, Long fileId, Long storeId) {
+    public void processUploadJob(String jobId, Long fileId, Long storeId, boolean isHq) {
         UploadJob job = uploadJobRepository.findById(jobId)
                 .orElseThrow(() -> {
                     log.error("Upload job not found: {}", jobId);
@@ -93,7 +93,7 @@ public class CsvProcessingService {
                 job.setTotalRows(job.getTotalRows() + 1);
 
                 try {
-                    processRow(data, storeId);
+                    processRow(data, storeId, isHq);
                     job.setSuccessfulRows(job.getSuccessfulRows() + 1);
                 } catch (Exception ex) {
                     logRowError(job.getId(), rowNumber, data, ex.getMessage());
@@ -117,11 +117,11 @@ public class CsvProcessingService {
                 jobId, job.getTotalRows(), job.getSuccessfulRows(), job.getFailedRows());
     }
 
-    private void processRow(Map<String, String> data, Long storeId) {
+    private void processRow(Map<String, String> data, Long storeId, boolean isHq) {
         validateHeaders(data);
 
         Long rowStoreId = Long.parseLong(data.get("store_id"));
-        if (!Objects.equals(storeId, rowStoreId)) {
+        if (!isHq && !Objects.equals(storeId, rowStoreId)) {
             throw new BadRequestException("Row store_id does not match upload store");
         }
 
