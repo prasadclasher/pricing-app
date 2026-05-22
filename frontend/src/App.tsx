@@ -48,6 +48,12 @@ export function App() {
       loadMe();
     } else {
       setMe(null);
+      setJobId("");
+      setJobStatus(null);
+      setRecords([]);
+      setSelected(null);
+      setNewPrice("");
+      setQuery({ storeId: "", sku: "", productName: "" });
     }
   }, [token, loadMe]);
 
@@ -131,6 +137,7 @@ export function App() {
     if (res.ok) {
       setSelected(await res.json());
       alert("Saved");
+      await search();
     }
   };
 
